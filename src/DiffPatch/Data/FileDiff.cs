@@ -9,9 +9,9 @@ namespace DiffPatch.Data
         public int Deletions { get; set; }
         public int Additions { get; set; }
 
-        public string To { get; set; }
+        public string? To { get; set; }
 
-        public string From { get; set; }
+        public string? From { get; set; }
 
         public FileChangeType Type { get; set; }
 
@@ -19,6 +19,6 @@ namespace DiffPatch.Data
 
         public bool Add => Type == FileChangeType.Add;
 
-        public IEnumerable<string> Index { get; set; }
+        public IEnumerable<string>? Index { get; set; }
     }
 }

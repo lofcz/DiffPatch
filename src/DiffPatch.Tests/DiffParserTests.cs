@@ -28,9 +28,9 @@ namespace DiffPatch.Tests
         }
 
         [Fact]
-        public void ShouldParseDataSet1709251127Diff()
+        public async Task ShouldParseDataSet1709251127Diff()
         {
-            string diff = DataSetHelper.ReadFileContent("D1709251127", "Diff-b3a6303-781096c.diff");
+            string diff = await DataSetHelper.ReadFileContent("D1709251127", "Diff-b3a6303-781096c.diff");
 
             var files = DiffParserHelper.Parse(diff, Environment.NewLine).ToArray();
             files.Length.Should().Be(1);
@@ -43,9 +43,9 @@ namespace DiffPatch.Tests
         }
 
         [Fact]
-        public void ShouldParseDataSet108Diff()
+        public async Task ShouldParseDataSet108Diff()
         {
-            string diff = DataSetHelper.ReadFileContent("D1709251127", "BinaryDiff.diff");
+            string diff = await DataSetHelper.ReadFileContent("D1709251127", "BinaryDiff.diff");
 
             var files = DiffParserHelper.Parse(diff).ToArray();
             files.Length.Should().Be(1);

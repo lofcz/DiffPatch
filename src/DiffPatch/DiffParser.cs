@@ -14,11 +14,11 @@ namespace DiffPatch
 
         private delegate void ParserAction(string line, Match m);
 
-        private List<FileDiff> files = new List<FileDiff>();
+        private readonly List<FileDiff> files = [];
         private int in_del, in_add;
 
-        private Chunk current = null;
-        private FileDiff file = null;
+        private Chunk? current;
+        private FileDiff? file;
 
         private int oldStart, newStart;
         private int oldLines, newLines;
@@ -45,14 +45,25 @@ namespace DiffPatch
 
         public IEnumerable<FileDiff> Run(IEnumerable<string> lines)
         {
-            foreach (var line in lines)
-                if (!ParseLine(line))
-                    ParseNormalLine(line);
+            foreach (string? line in lines)
+            {
+                string trimmedLine = line;
+
+                if (trimmedLine.EndsWith("\r"))
+                {
+                    trimmedLine = line.Substring(0, line.Length - 1);
+                }
+                
+                if (!ParseLine(trimmedLine))
+                {
+                    ParseNormalLine(trimmedLine);
+                }
+            }
 
             return files;
         }
 
-        private void Start(string line)
+        private void Start(string? line)
         {
             file = new FileDiff();
             files.Add(file);
@@ -78,39 +89,63 @@ namespace DiffPatch
         private void NewFile()
         {
             Restart();
-            file.Type = FileChangeType.Add;
-            file.From = devnull;
+
+            if (file is not null)
+            {
+                file.Type = FileChangeType.Add;
+                file.From = devnull;
+            }
         }
 
         private void DeletedFile()
         {
             Restart();
-            file.Type = FileChangeType.Delete;
-            file.To = devnull;
+
+            if (file is not null)
+            {
+                file.Type = FileChangeType.Delete;
+                file.To = devnull;
+            }
         }
 
         private void Index(string line)
         {
             Restart();
-            file.Index = line.Split(' ').Skip(1);
+
+            if (file is not null)
+            {
+                file.Index = line.Split(' ').Skip(1);                
+            }
         }
 
         private void FromFile(string line)
         {
             Restart();
-            file.From = ParseFileName(line);
+
+            if (file is not null)
+            {
+                file.From = ParseFileName(line);   
+            }
         }
 
         private void ToFile(string line)
         {
             Restart();
-            file.To = ParseFileName(line);
+
+            if (file is not null)
+            {
+                file.To = ParseFileName(line);
+            }
         }
 
         private void BinaryDiff()
         {
             Restart();
-            file.Type = FileChangeType.Modified;
+
+            if (file is not null)
+            {
+                file.Type = FileChangeType.Modified;   
+            }
         }
 
         private void Chunk(string line, Match match)
@@ -125,29 +160,35 @@ namespace DiffPatch
             );
 
             current = new Chunk(line, rangeInfo);
-            file.Chunks.Add(current);
+            file?.Chunks.Add(current);
         }
 
         private void DeleteLine(string line)
         {
             string content = DiffLineHelper.GetContent(line);
-            current.Changes.Add(new LineDiff(type: LineChangeType.Delete, index: in_del++, content: content));
-            file.Deletions++;
+            current?.Changes.Add(new LineDiff(type: LineChangeType.Delete, index: in_del++, content: content));
+
+            if (file is not null)
+            {
+                file.Deletions++;   
+            }
         }
 
         private void AddLine(string line)
         {
             string content = DiffLineHelper.GetContent(line);
-            current.Changes.Add(new LineDiff(type: LineChangeType.Add, index: in_add++, content: content));
-            file.Additions++;
+            current?.Changes.Add(new LineDiff(type: LineChangeType.Add, index: in_add++, content: content));
+
+            if (file is not null)
+            {
+                file.Additions++;   
+            }
         }
 
 
         private void ParseNormalLine(string line)
         {
-            if (file == null) return;
-
-            if (string.IsNullOrEmpty(line)) return;
+            if (file is null || string.IsNullOrEmpty(line) || current is null) return;
 
             string content = DiffLineHelper.GetContent(line);
             current.Changes.Add(new LineDiff(
@@ -171,13 +212,17 @@ namespace DiffPatch
             return false;
         }
 
-        private static string[] ParseFileNames(string s)
+        private static readonly Regex FileNameRegex = new Regex(@"^(a|b)\/", RegexOptions.Compiled);
+        private static readonly Regex TimestampRegex = new Regex(@"\t.*|\d{4}-\d\d-\d\d\s\d\d:\d\d:\d\d(.\d+)?\s(\+|-)\d\d\d\d", RegexOptions.Compiled);
+        private static readonly Regex GitPrefixRegex = new Regex(@"^(a|b)\/", RegexOptions.Compiled);
+        
+        private static string[]? ParseFileNames(string? s)
         {
             if (string.IsNullOrEmpty(s)) return null;
-            return s
+            return s!
                 .Split(' ')
                 .Reverse().Take(2).Reverse()
-                .Select(fileName => Regex.Replace(fileName, @"^(a|b)\/", "")).ToArray();
+                .Select(fileName => FileNameRegex.Replace(fileName, string.Empty)).ToArray();
         }
 
         private static string ParseFileName(string s)
@@ -186,16 +231,14 @@ namespace DiffPatch
             s = s.Trim();
 
             // ignore possible time stamp
-            var t = new Regex(@"\t.*|\d{4}-\d\d-\d\d\s\d\d:\d\d:\d\d(.\d+)?\s(\+|-)\d\d\d\d").Match(s);
+            var t = TimestampRegex.Match(s);
             if (t.Success)
             {
                 s = s.Substring(0, t.Index).Trim();
             }
 
             // ignore git prefixes a/ or b/
-            return Regex.IsMatch(s, @"^(a|b)\/")
-                ? s.Substring(2)
-                : s;
+            return GitPrefixRegex.IsMatch(s) ? s.Substring(2) : s;
         }
 
         private class HandlerRow
@@ -213,7 +256,7 @@ namespace DiffPatch
 
         private class HandlerCollection : IEnumerable<HandlerRow>
         {
-            private List<HandlerRow> handlers = new List<HandlerRow>();
+            private readonly List<HandlerRow> handlers = new List<HandlerRow>();
 
             public void Add(string expression, Action action)
             {

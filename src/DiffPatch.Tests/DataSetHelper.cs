@@ -5,18 +5,22 @@ namespace DiffPatch.Tests
 {
     class DataSetHelper
     {
-        public static string ReadFileContent(string dataSetId, string filename)
+        public static async Task<string?> ReadFileContent(string dataSetId, string filename)
         {
             Assembly assembly = typeof(DiffParserTests).GetTypeInfo().Assembly;
             string assemblyName = assembly.GetName().Name;
             string resourceName = $"{assemblyName}.DataSets.{dataSetId}.{filename}";
 
-            using (Stream stream = assembly.GetManifestResourceStream(resourceName))
-            using (StreamReader reader = new StreamReader(stream))
+            await using Stream stream = assembly.GetManifestResourceStream(resourceName);
+
+            if (stream is null)
             {
-                string fileContent = reader.ReadToEnd();
-                return fileContent;
+                return null;
             }
+            
+            using StreamReader reader = new StreamReader(stream);
+            string fileContent = await reader.ReadToEndAsync();
+            return fileContent;
         }
     }
 }

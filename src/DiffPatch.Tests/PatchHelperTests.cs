@@ -32,17 +32,17 @@ index 123..456 789
         }
 
         [Fact]
-        public void ShouldPatchDataSet1709251127Diff()
+        public async Task ShouldPatchDataSet1709251127Diff()
         {
             string dataSetId = "D1709251127";
 
-            var diff = DataSetHelper.ReadFileContent(dataSetId, "Diff-b3a6303-781096c.diff");
+            var diff = await DataSetHelper.ReadFileContent(dataSetId, "Diff-b3a6303-781096c.diff");
 
             FileDiff[] files = DiffParserHelper.Parse(diff, Environment.NewLine).ToArray();
             FileDiff file = files[0];
 
-            string srcString = DataSetHelper.ReadFileContent(dataSetId, "Diff-b3a6303.txt");
-            string expectedString = DataSetHelper.ReadFileContent(dataSetId, "Diff-781096c.txt").Trim();
+            string srcString = await DataSetHelper.ReadFileContent(dataSetId, "Diff-b3a6303.txt");
+            string expectedString = (await DataSetHelper.ReadFileContent(dataSetId, "Diff-781096c.txt"))!.Trim();
 
             string patchedString = PatchHelper.Patch(srcString, file.Chunks, Environment.NewLine).Trim();
             patchedString.Should().Be(expectedString);

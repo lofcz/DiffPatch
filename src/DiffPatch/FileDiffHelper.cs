@@ -10,24 +10,26 @@ namespace DiffPatch
     public class FileDiffHelper
     {
         private delegate void ParserAction(string line, Match m);
+        private const string noeol = "\\ No newline at end of file";
 
         public static IEnumerable<FileDiff> Parse(string input, string lineEnding = "\n")
         {
             var lines = StringHelper.SplitLines(input, lineEnding);
 
-            if (!lines.Any()) return Enumerable.Empty<FileDiff>();
+            if (!lines.Any()) return Array.Empty<FileDiff>();
 
             var files = new List<FileDiff>();
             var in_del = 0;
             var in_add = 0;
 
-            Chunk current = null;
-            FileDiff file = null;
+            Chunk? current = null;
+            FileDiff? file = null;
 
             int oldStart, newStart;
             int oldLines, newLines;
 
-            ParserAction start = (line, m) => {
+            void Start(string? line, Match? m)
+            {
                 file = new FileDiff();
                 files.Add(file);
 
@@ -41,92 +43,124 @@ namespace DiffPatch
                         file.To = fileNames[1];
                     }
                 }
-            };
+            }
 
-            ParserAction restart = (line, m) => {
-                if (file == null || file.Chunks.Count != 0)
-                    start(null, null);
-            };
+            void Restart()
+            {
+                if (file == null || file.Chunks.Count != 0) Start(null, null);
+            }
 
-            ParserAction new_file = (line, m) => {
-                restart(null, null);
-                file.Type = FileChangeType.Add;
-                file.From = "/dev/null";
-            };
+            void NewFile(string line, Match m)
+            {
+                Restart();
 
-            ParserAction deleted_file = (line, m) => {
-                restart(null, null);
-                file.Type = FileChangeType.Delete;
-                file.To = "/dev/null";
-            };
+                if (file is not null)
+                {
+                    file.Type = FileChangeType.Add;
+                    file.From = "/dev/null";
+                }
+            }
 
-            ParserAction index = (line, m) => {
-                restart(null, null);
-                file.Index = line.Split(' ').Skip(1);
-            };
+            void DeletedFile(string line, Match m)
+            {
+                Restart();
 
-            ParserAction from_file = (line, m) => {
-                restart(null, null);
-                file.From = parseFileFallback(line);
-            };
+                if (file is not null)
+                {
+                    file.Type = FileChangeType.Delete;
+                    file.To = "/dev/null";   
+                }
+            }
 
-            ParserAction to_file = (line, m) => {
-                restart(null, null);
-                file.To = parseFileFallback(line);
-            };
+            void Index(string line, Match m)
+            {
+                Restart();
 
-            ParserAction chunk = (line, match) => {
+                if (file is not null)
+                {
+                    file.Index = line.Split(' ').Skip(1);   
+                }
+            }
+
+            void FromFile(string line, Match m)
+            {
+                Restart();
+
+                if (file is not null)
+                {
+                    file.From = parseFileFallback(line);   
+                }
+            }
+
+            void ToFile(string line, Match m)
+            {
+                Restart();
+
+                if (file is not null)
+                {
+                    file.To = parseFileFallback(line);   
+                }
+            }
+            
+            void Chunk(string line, Match match)
+            {
                 in_del = oldStart = int.Parse(match.Groups[1].Value);
                 oldLines = match.Groups[2].Success ? int.Parse(match.Groups[2].Value) : 0;
                 in_add = newStart = int.Parse(match.Groups[3].Value);
                 newLines = match.Groups[4].Success ? int.Parse(match.Groups[4].Value) : 0;
-                ChunkRangeInfo rangeInfo = new ChunkRangeInfo(
-                    new ChunkRange(oldStart, oldLines),
-                    new ChunkRange(newStart, newLines)
-                );
+                ChunkRangeInfo rangeInfo = new ChunkRangeInfo(new ChunkRange(oldStart, oldLines), new ChunkRange(newStart, newLines));
 
                 current = new Chunk(line, rangeInfo);
-                file.Chunks.Add(current);
-            };
+                file?.Chunks.Add(current);
+            }
 
-            ParserAction del = (line, match) => {
+            void Del(string line, Match match)
+            {
+                if (current is null || file is null)
+                {
+                    return;
+                }
+                
                 string content = DiffLineHelper.GetContent(line);
                 current.Changes.Add(new LineDiff(type: LineChangeType.Delete, index: in_del++, content: content));
                 file.Deletions++;
-            };
+            }
 
-            ParserAction add = (line, m) => {
+            void Add(string line, Match m)
+            {
+                if (current is null || file is null)
+                {
+                    return;
+                }
+                
                 string content = DiffLineHelper.GetContent(line);
                 current.Changes.Add(new LineDiff(type: LineChangeType.Add, index: in_add++, content: content));
                 file.Additions++;
-            };
-
-            const string noeol = "\\ No newline at end of file";
-
-            Action<string> normal = line => {
-                if (file == null) return;
-
+            }
+            
+            void Normal(string line)
+            {
+                if (file is null || current is null) return;
+                
                 string content = DiffLineHelper.GetContent(line);
-                current.Changes.Add(new LineDiff(
-                    oldIndex: line == noeol ? 0 : in_del++,
-                    newIndex: line == noeol ? 0 : in_add++,
-                    content: content));
-            };
+                current.Changes.Add(new LineDiff(oldIndex: line == noeol ? 0 : in_del++, newIndex: line == noeol ? 0 : in_add++, content: content));
+            }
 
             var schema = new Dictionary<Regex, ParserAction>
             {
-                    { new Regex(@"^diff\s"), start },
-                    { new Regex(@"^new file mode \d+$"), new_file },
-                    { new Regex(@"^deleted file mode \d+$"), deleted_file },
-                    { new Regex(@"^index\s[\da-zA-Z]+\.\.[\da-zA-Z]+(\s(\d+))?$"), index },
-                    { new Regex(@"^---\s"), from_file },
-                    { new Regex(@"^\+\+\+\s"), to_file },
-                    { new Regex(@"^@@\s+\-(\d+),?(\d+)?\s+\+(\d+),?(\d+)?\s@@"), chunk },
-                    { new Regex(@"^-"), del },
-                    { new Regex(@"^\+"), add }
+                { new Regex(@"^diff\s"), Start },
+                { new Regex(@"^new file mode \d+$"), NewFile },
+                { new Regex(@"^deleted file mode \d+$"), DeletedFile },
+                { new Regex(@"^index\s[\da-zA-Z]+\.\.[\da-zA-Z]+(\s(\d+))?$"), Index },
+                { new Regex(@"^---\s"), FromFile },
+                { new Regex(@"^\+\+\+\s"), ToFile },
+                { new Regex(@"^@@\s+\-(\d+),?(\d+)?\s+\+(\d+),?(\d+)?\s@@"), Chunk },
+                { new Regex(@"^-"), Del },
+                { new Regex(@"^\+"), Add }
             };
 
-            Func<string, bool> parse = line => {
+            bool Func(string line)
+            {
                 foreach (var p in schema)
                 {
                     var m = p.Key.Match(line);
@@ -138,19 +172,19 @@ namespace DiffPatch
                 }
 
                 return false;
-            };
+            }
 
             foreach (var line in lines)
-                if (!parse(line))
-                    normal(line);
+                if (!Func(line))
+                    Normal(line);
 
             return files;
         }
 
-        private static string[] parseFile(string s)
+        private static string[]? parseFile(string? s)
         {
             if (string.IsNullOrEmpty(s)) return null;
-            return s
+            return s!
                 .Split(' ')
                 .Reverse().Take(2).Reverse()
                 .Select(fileName => Regex.Replace(fileName, @"^(a|b)\/", "")).ToArray();
